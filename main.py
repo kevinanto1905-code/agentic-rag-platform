@@ -4,6 +4,9 @@ from database import SessionLocal
 from models import Document
 from worker import process_document
 
+from pydantic import BaseModel
+from processing import extract_text, chunk_text, store_chunks, answer_question
+
 app = FastAPI(title="Agentic RAG Platform")
 
 @app.get("/")
@@ -29,3 +32,10 @@ async def upload_document(file: UploadFile = File(...)):
     process_document.delay(document_id)
 
     return {"document_id": document_id, "filename": file.filename, "status": "pending"}
+class Question(BaseModel):
+    question: str
+
+@app.post("/ask")
+async def ask_question(payload: Question):
+    result = answer_question(payload.question)
+    return result

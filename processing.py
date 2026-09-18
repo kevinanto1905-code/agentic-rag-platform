@@ -58,3 +58,48 @@ def store_chunks(document_id: int, chunks: list[str]):
         })
     index.upsert(vectors=vectors)
     return len(vectors)
+def semantic_search(query: str, top_k: int = 5) -> list[dict]:
+    query_embedding = get_embedding(query)
+    results = index.query(
+        vector=query_embedding,
+        top_k=top_k,
+        include_metadata=True
+    )
+    matches = []
+    for match in results["matches"]:
+        matches.append({
+            "text": match["metadata"]["text"],
+            "document_id": match["metadata"]["document_id"],
+            "score": match["score"]
+        })
+    return matches
+
+
+def answer_question(query: str, top_k: int = 5) -> dict:
+    matches = semantic_search(query, top_k=top_k)
+
+    if not matches:
+        return {
+            "answer": "I don't have any documents to search yet. Please upload one first.",
+            "sources": []
+        }
+
+    context = "\n\n".join([f"[Chunk {i}]: {m['text']}" for i, m in enumerate(matches)])
+
+    prompt = f"""Answer the question using ONLY the context below. If the answer isn't in the context, say "I don't have enough information to answer that."
+
+Context:
+{context}
+
+Question: {query}
+"""
+
+    response = openai_client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}]
+    )
+
+    return {
+        "answer": response.choices[0].message.content,
+        "sources": matches
+    }
