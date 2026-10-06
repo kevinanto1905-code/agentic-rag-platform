@@ -3,6 +3,7 @@ import shutil, os
 from database import SessionLocal
 from models import Document
 from worker import process_document
+from agent import route_query
 
 from pydantic import BaseModel
 from processing import extract_text, chunk_text, store_chunks, answer_question
@@ -32,10 +33,12 @@ async def upload_document(file: UploadFile = File(...)):
     process_document.delay(document_id)
 
     return {"document_id": document_id, "filename": file.filename, "status": "pending"}
+
 class Question(BaseModel):
     question: str
+    document_id: int | None = None
 
 @app.post("/ask")
 async def ask_question(payload: Question):
-    result = answer_question(payload.question)
+    result = route_query(payload.question, payload.document_id)
     return result
