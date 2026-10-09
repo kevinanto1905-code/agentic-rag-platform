@@ -1,7 +1,7 @@
 from celery import Celery
 from database import SessionLocal
 from models import Document
-from processing import extract_text, chunk_text, store_chunks
+from processing import extract_text, chunk_text, store_chunks, load_spreadsheet
 
 celery_app = Celery(
     "tasks",
@@ -12,6 +12,7 @@ celery_app = Celery(
 @celery_app.task
 def process_document(document_id: int):
     db = SessionLocal()
+    doc = None
     try:
         doc = db.query(Document).filter(Document.id == document_id).first()
         if not doc:
@@ -23,20 +24,25 @@ def process_document(document_id: int):
         print(f"Document {document_id} -> processing")
 
         file_path = f"uploads/{doc.filename}"
-        text = extract_text(file_path)
-        chunks = chunk_text(text)
-        print(f"Extracted {len(text)} characters, split into {len(chunks)} chunks")
 
-        stored_count = store_chunks(document_id, chunks)
-        print(f"Stored {stored_count} embeddings in Pinecone")
+        if doc.filename.lower().endswith((".csv", ".xlsx")):
+            df = load_spreadsheet(file_path)
+            print(f"Spreadsheet loaded: {len(df)} rows, {len(df.columns)} columns")
+        else:
+            text = extract_text(file_path)
+            chunks = chunk_text(text)
+            print(f"Extracted {len(text)} characters, split into {len(chunks)} chunks")
+            stored_count = store_chunks(document_id, chunks)
+            print(f"Stored {stored_count} embeddings in Pinecone")
 
         doc.status = "ready"
         db.commit()
         print(f"Document {document_id} -> ready")
 
     except Exception as e:
-        doc.status = "failed"
-        db.commit()
+        if doc:
+            doc.status = "failed"
+            db.commit()
         print(f"Document {document_id} -> failed: {e}")
     finally:
         db.close()

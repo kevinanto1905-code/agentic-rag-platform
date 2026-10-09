@@ -1,3 +1,5 @@
+import json
+import pandas as pd
 from pypdf import PdfReader
 from openai import OpenAI
 from pinecone import Pinecone
@@ -134,3 +136,83 @@ def summarize_document(document_id: int) -> str:
             f"Summarize the following document in 4-5 clear sentences covering its main topics.\n\n{full_text}"}],
     )
     return response.choices[0].message.content
+
+ALLOWED_OPS = {"sum", "mean", "median", "min", "max", "count"}
+
+
+def load_spreadsheet(file_path: str) -> pd.DataFrame:
+    if file_path.lower().endswith(".csv"):
+        df = pd.read_csv(file_path)
+    else:
+        df = pd.read_excel(file_path)
+    df.columns = [str(c).strip() for c in df.columns]
+    return df
+
+
+def _clean(value):
+    value = float(value)
+    return int(value) if value.is_integer() else round(value, 2)
+
+
+def analyze_spreadsheet(file_path: str, question: str) -> dict:
+    df = load_spreadsheet(file_path)
+    schema = ", ".join(f"{name} ({dtype})" for name, dtype in df.dtypes.astype(str).items())
+    sample = df.head(3).to_string(index=False)
+
+    response = openai_client.chat.completions.create(
+        model="gpt-4o-mini",
+        temperature=0,
+        response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": (
+                "You turn a question about a spreadsheet into a JSON plan. "
+                "Reply with JSON only, using exactly these keys: "
+                '"operation" (one of sum, mean, median, min, max, count), '
+                '"column" (column to calculate on, or null when counting rows), '
+                '"group_by" (column to group by, or null), '
+                '"filter_column" (column to filter on, or null), '
+                '"filter_value" (value to match, or null). '
+                "Use only column names that exist in the schema."
+            )},
+            {"role": "user", "content": f"Columns: {schema}\nFirst rows:\n{sample}\n\nQuestion: {question}"},
+        ],
+    )
+
+    try:
+        plan = json.loads(response.choices[0].message.content)
+    except json.JSONDecodeError:
+        return {"answer": "I couldn't turn that question into a calculation.", "plan": None}
+
+    op = plan.get("operation")
+    col = plan.get("column")
+    group_by = plan.get("group_by")
+    f_col = plan.get("filter_column")
+    f_val = plan.get("filter_value")
+
+    if op not in ALLOWED_OPS:
+        return {"answer": "That kind of calculation isn't supported yet.", "plan": plan}
+    for name in (col, group_by, f_col):
+        if name is not None and name not in df.columns:
+            return {"answer": f"I couldn't find a column named '{name}'.", "plan": plan}
+
+    if f_col is not None:
+        df = df[df[f_col].astype(str).str.lower() == str(f_val).lower()]
+        if df.empty:
+            return {"answer": "No rows matched that filter.", "plan": plan}
+
+    if col is None:
+        if op != "count":
+            return {"answer": "Please tell me which column to calculate on.", "plan": plan}
+        result = df.groupby(group_by).size() if group_by else len(df)
+    else:
+        if op != "count" and not pd.api.types.is_numeric_dtype(df[col]):
+            return {"answer": f"'{col}' isn't a numeric column, so I can't {op} it.", "plan": plan}
+        data = df.groupby(group_by)[col] if group_by else df[col]
+        result = getattr(data, op)()
+
+    if isinstance(result, pd.Series):
+        value = {str(k): _clean(v) for k, v in result.items()}
+    else:
+        value = _clean(result)
+
+    return {"answer": f"{op} of {col or 'rows'} = {value}", "result": value, "plan": plan}
