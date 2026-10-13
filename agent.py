@@ -4,6 +4,8 @@ from processing import answer_question, summarize_document, analyze_spreadsheet,
 from database import SessionLocal
 from models import Document
 
+SPREADSHEET_EXTENSIONS = (".csv", ".xlsx")
+
 
 class AgentState(TypedDict):
     query: str
@@ -12,7 +14,25 @@ class AgentState(TypedDict):
     result: dict
 
 
+def get_document_filename(document_id: Optional[int]) -> Optional[str]:
+    if document_id is None:
+        return None
+    db = SessionLocal()
+    try:
+        doc = db.query(Document).filter(Document.id == document_id).first()
+        return doc.filename if doc else None
+    finally:
+        db.close()
+
+
 def router_node(state: AgentState) -> dict:
+    filename = get_document_filename(state["document_id"])
+
+    # Rule 1: the file type is certain, so no LLM guess is needed.
+    if filename and filename.lower().endswith(SPREADSHEET_EXTENSIONS):
+        return {"route": "analyze"}
+
+    # Rule 2: for everything else, the LLM picks the route.
     response = openai_client.chat.completions.create(
         model="gpt-4o-mini",
         temperature=0,
@@ -30,8 +50,8 @@ def router_node(state: AgentState) -> dict:
     choice = response.choices[0].message.content.strip().lower()
     if "summarize" in choice:
         route = "summarize"
-    elif "analyze" in choice:
-        route = "analyze"
+    elif "analyze" in choice and filename is None:
+        route = "analyze"  # no document given, so analyze_node will ask which spreadsheet
     else:
         route = "retrieval"
     return {"route": route}
@@ -53,13 +73,8 @@ def summarize_node(state: AgentState) -> dict:
 def analyze_node(state: AgentState) -> dict:
     if state["document_id"] is None:
         return {"result": {"answer": "Please specify which spreadsheet (document_id) to analyze.", "tool_used": "none"}}
-    db = SessionLocal()
-    try:
-        doc = db.query(Document).filter(Document.id == state["document_id"]).first()
-        filename = doc.filename if doc else None
-    finally:
-        db.close()
-    if not filename or not filename.lower().endswith((".csv", ".xlsx")):
+    filename = get_document_filename(state["document_id"])
+    if not filename or not filename.lower().endswith(SPREADSHEET_EXTENSIONS):
         return {"result": {"answer": "That document isn't a spreadsheet.", "tool_used": "none"}}
     result = analyze_spreadsheet(f"uploads/{filename}", state["query"])
     result["tool_used"] = "analysis_tool"
