@@ -1,14 +1,12 @@
+import os
 from celery import Celery
 from database import SessionLocal
 from models import Document
 from processing import extract_text, chunk_text, store_chunks, load_spreadsheet
 
-celery_app = Celery(
-    "tasks",
-    broker="redis://localhost:6379/0",
-    backend="redis://localhost:6379/0"
-)
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
+celery_app = Celery("tasks", broker=REDIS_URL, backend=REDIS_URL)
 @celery_app.task
 def process_document(document_id: int):
     db = SessionLocal()
