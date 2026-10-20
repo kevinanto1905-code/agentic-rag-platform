@@ -3,6 +3,7 @@ from langgraph.graph import StateGraph, END
 from processing import answer_question, summarize_document, analyze_spreadsheet, openai_client
 from database import SessionLocal
 from models import Document
+from storage import get_local_path
 
 SPREADSHEET_EXTENSIONS = (".csv", ".xlsx")
 
@@ -76,7 +77,7 @@ def analyze_node(state: AgentState) -> dict:
     filename = get_document_filename(state["document_id"])
     if not filename or not filename.lower().endswith(SPREADSHEET_EXTENSIONS):
         return {"result": {"answer": "That document isn't a spreadsheet.", "tool_used": "none"}}
-    result = analyze_spreadsheet(f"uploads/{filename}", state["query"])
+    result = analyze_spreadsheet(get_local_path(filename), state["query"])
     result["tool_used"] = "analysis_tool"
     return {"result": result}
 

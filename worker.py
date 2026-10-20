@@ -3,6 +3,7 @@ from celery import Celery
 from database import SessionLocal
 from models import Document
 from processing import extract_text, chunk_text, store_chunks, load_spreadsheet
+from storage import get_local_path
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
@@ -21,7 +22,7 @@ def process_document(document_id: int):
         db.commit()
         print(f"Document {document_id} -> processing")
 
-        file_path = f"uploads/{doc.filename}"
+        file_path = get_local_path(doc.filename)
 
         if doc.filename.lower().endswith((".csv", ".xlsx")):
             df = load_spreadsheet(file_path)

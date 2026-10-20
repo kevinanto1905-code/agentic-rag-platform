@@ -4,6 +4,7 @@ from database import SessionLocal
 from models import Document
 from worker import process_document
 from agent import route_query
+from storage import save_file
 
 from pydantic import BaseModel
 from processing import extract_text, chunk_text, store_chunks, answer_question
@@ -16,11 +17,7 @@ def health_check():
 
 @app.post("/upload")
 async def upload_document(file: UploadFile = File(...)):
-    os.makedirs("uploads", exist_ok=True)
-    save_path = f"uploads/{file.filename}"
-
-    with open(save_path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
+    save_file(file.file, file.filename)
 
     db = SessionLocal()
     new_doc = Document(filename=file.filename, status="pending")
