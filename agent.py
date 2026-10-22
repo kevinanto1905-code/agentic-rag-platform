@@ -106,4 +106,6 @@ def route_query(query: str, document_id: int = None) -> dict:
     final_state = agent_app.invoke(
         {"query": query, "document_id": document_id, "route": "", "result": {}}
     )
-    return final_state["result"]
+    result = final_state["result"]
+    result["question"] = query
+    return result

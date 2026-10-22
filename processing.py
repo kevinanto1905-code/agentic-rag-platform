@@ -172,7 +172,10 @@ def analyze_spreadsheet(file_path: str, question: str) -> dict:
                 '"group_by" (column to group by, or null), '
                 '"filter_column" (column to filter on, or null), '
                 '"filter_value" (value to match, or null). '
-                "Use only column names that exist in the schema."
+                "Use only column names that exist in the schema. "
+                "Important: questions like 'how many units sold' or 'how many items' "
+                "mean the SUM of the quantity column, not a count. "
+                "Use count only when asked how many rows, records, orders or entries there are."
             )},
             {"role": "user", "content": f"Columns: {schema}\nFirst rows:\n{sample}\n\nQuestion: {question}"},
         ],
